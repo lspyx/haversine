@@ -148,8 +148,9 @@ void normal_mode(std::default_random_engine &re, std::array<PointPair, 1000> &pa
       f << "\"x1\":"  << p1.x << ", \"y1\":" << p1.y << "}";
       if (iteration_gen + n_generated - 1 != n_total) f << ',';
       f << '\n';
-      const auto result = (ReferenceHaversine(p0.x, p0.y, p1.x, p1.y) / n_total);
-      ff << result;
+      const auto res = ReferenceHaversine(p0.x, p0.y, p1.x, p1.y);
+      const auto result = (res / n_total);
+      ff << res;
       hav_avg += result;
     }
     n_generated += iteration_gen;
@@ -325,8 +326,9 @@ void cluster_mode(std::default_random_engine &re, std::array<PointPair, 1000> &p
       f << "\"x1\":"  << p1.x << ", \"y1\":" << p1.y << "}";
       if (iteration_gen - 1 != j) f << ',';
       f << '\n';
-      const auto result = (ReferenceHaversine(p0.x, p0.y, p1.x, p1.y) / n_total);
-      ff << result;
+      const auto res = ReferenceHaversine(p0.x, p0.y, p1.x, p1.y);
+      const auto result = (res / n_total);
+      ff << res;
       hav_avg += result;
     }
   }
