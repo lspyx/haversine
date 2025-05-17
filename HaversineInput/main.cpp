@@ -5,6 +5,7 @@
 #include <array>
 #include <fstream>
 #include <cmath>
+#include <iomanip>
 
 enum class eOperatingMode {
   Null,
@@ -98,7 +99,7 @@ static double RadiansFromDegrees(double Degrees) {
   return Result;
 }
 
-static double ReferenceHaversine(double X0, double Y0, double X1, double Y1, double EarthRadius = 6372.8d) {
+static double ReferenceHaversine(double X0, double Y0, double X1, double Y1, double EarthRadius = 6372.8) {
   double lat1 = Y0, lat2 = Y1, lon1 = X0, lon2 = X1;
   double dLat = RadiansFromDegrees(lat2 - lat1);
   double dLon = RadiansFromDegrees(lon2 - lon1);
@@ -130,10 +131,12 @@ int normal_mode_part(std::array<PointPair, 1000> &pairs, int n_generated, int n_
 
 void normal_mode(std::default_random_engine &re, std::array<PointPair, 1000> &pairs, int n_total, const std::string &output_filename) {
   int n_generated = 0;
+
   std::ofstream f(output_filename);
   std::ofstream ff(output_filename + ".answers.f64", std::ios_base::out);
   if (f.bad() || !f.is_open())
     throw std::runtime_error("can't create/open a file " + output_filename);
+  f << std::setw(24) << std::fixed;
   if (ff.bad() || !ff.is_open())
     throw std::runtime_error("can't create/open an answer file " + output_filename);
   double hav_avg = 0;
@@ -143,14 +146,15 @@ void normal_mode(std::default_random_engine &re, std::array<PointPair, 1000> &pa
     for (int j = 0; j < iteration_gen; j++) {
       const auto &p = pairs[j];
       const auto &p0 = p.first;
-      const auto &p1 = p.second;      
+      const auto &p1 = p.second;
+      const auto res = ReferenceHaversine(p0.x, p0.y, p1.x, p1.y);
       f << "\t{\"x0\":" << p0.x << ", \"y0\":" << p0.y << ", ";
-      f << "\"x1\":"  << p1.x << ", \"y1\":" << p1.y << "}";
+      f << "\"x1\":"  << p1.x << ", \"y1\":" << p1.y
+        << ", \"answer\":" << res << "}";
       if (iteration_gen + n_generated - 1 != n_total) f << ',';
       f << '\n';
-      const auto res = ReferenceHaversine(p0.x, p0.y, p1.x, p1.y);
       const auto result = (res / n_total);
-      ff << res;
+      ff.write(reinterpret_cast<const char *>(&res), sizeof(double));
       hav_avg += result;
     }
     n_generated += iteration_gen;
@@ -160,18 +164,22 @@ void normal_mode(std::default_random_engine &re, std::array<PointPair, 1000> &pa
     for (int j = 0; j < iteration_gen; j++) {
       const auto &p = pairs[j];
       const auto &p0 = p.first;
-      const auto &p1 = p.second;      
+      const auto &p1 = p.second;
+      const auto res = ReferenceHaversine(p0.x, p0.y, p1.x, p1.y);
       f << "\t{\"x0\":" << p0.x << ", \"y0\":" << p0.y << ", ";
-      f << "\"x1\":"  << p1.x << ", \"y1\":" << p1.y << "}";
+      f << "\"x1\":"  << p1.x << ", \"y1\":" << p1.y << ", \"answer\":"
+        << res
+        << "}";
       if (iteration_gen - 1 != j) f << ',';
       f << '\n';
-      const auto result = (ReferenceHaversine(p0.x, p0.y, p1.x, p1.y) / n_total);
-      ff << result;
+      const auto result = (res / n_total);
+      ff.write(reinterpret_cast<const char *>(&res), sizeof(double));
       hav_avg += result;
     }
   }
   f << "]}\n";
   std::cout << "ReferenceHaversine avg: " << hav_avg << std::endl;
+  ff.write(reinterpret_cast<const char *>(&hav_avg), sizeof(double));
   return;
 }
 
@@ -310,8 +318,9 @@ void cluster_mode(std::default_random_engine &re, std::array<PointPair, 1000> &p
       f << "\"x1\":"  << p1.x << ", \"y1\":" << p1.y << "}";
       if (iteration_gen + n_generated - 1 != n_total) f << ',';
       f << '\n';
-      const auto result = (ReferenceHaversine(p0.x, p0.y, p1.x, p1.y) / n_total);
-      ff << result;
+      const auto res = ReferenceHaversine(p0.x, p0.y, p1.x, p1.y) ;
+      const auto result = (res / n_total);
+      ff.write(reinterpret_cast<const char *>(&res), sizeof(double));
       hav_avg += result;
     }
     n_generated += iteration_gen;
@@ -328,7 +337,7 @@ void cluster_mode(std::default_random_engine &re, std::array<PointPair, 1000> &p
       f << '\n';
       const auto res = ReferenceHaversine(p0.x, p0.y, p1.x, p1.y);
       const auto result = (res / n_total);
-      ff << res;
+      ff.write(reinterpret_cast<const char *>(&res), sizeof(double));
       hav_avg += result;
     }
   }

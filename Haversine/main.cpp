@@ -1,112 +1,135 @@
-#include <iostream>
-#include <variant>
-#include <list>
-#include <map>
-#include <memory>
-#include <string>
+#include "common.h"
+#include "json_parser.h"
+#include <sys/stat.h>
+#include <iomanip>
+namespace lsp {
 
-namespace json {
-  namespace detail {
-    std::string tr_spaces_d_newlines_trim(const std::string &str) {
-      std::string result;
-      bool prev_was_space = false;
-      for (const auto c : str) {
-	if (c == ' ' || c == '\t') {
-	  if (!prev_was_space) {
-	    result += ' ';
-	    prev_was_space = true;
-	  }
-	  continue;
-	} else {
-	  if (c != '\n') {
-	    result += c;
-	  } else {
-	    prev_was_space = false;
-	  }
-	}
-      }
-      if (result[0] == ' ') result.erase(result.begin());
-      if (result[result.size() - 1] == ' ') result.erase(result.end() - 1);
-      return result;
+    static double Square(double a) {
+        return a * a;
     }
-    
-    std::string normalize(const std::string &str) {
-      return tr_spaces_d_newlines_trim(str);
+
+    static double RadiansFromDegrees(double degrees) {
+        return 0.01745329251994329577 * degrees;
     }
-  }
-  
-  using Key = std::string;
 
-  struct Object;
-  struct List;
-  
-  struct Value {
-    std::variant<std::string, double, long, std::unique_ptr<List>, std::unique_ptr<Object>> value;
-  };
+static double ReferenceHaversine(double X0, double Y0, double X1, double Y1, double EarthRadius = 6372.8) {
+  double lat1 = Y0, lat2 = Y1, lon1 = X0, lon2 = X1;
+  double dLat = RadiansFromDegrees(lat2 - lat1);
+  double dLon = RadiansFromDegrees(lon2 - lon1);
+  lat1 = RadiansFromDegrees(lat1);
+  lat2 = RadiansFromDegrees(lat2);
 
-  struct Object {
-    std::map<Key, Value> value;
-  };
+  double a = Square(sin(dLat / 2.0)) + cos(lat1) * cos(lat2) * Square(sin(dLon / 2.0));
+  double c = 2.0 * asin(sqrt(a));
 
-  struct List {
-    std::list<Value> value;
-  };
+  double Result = EarthRadius * c;
 
-  enum class eParseState {
-    Null,
-    Key,
-    ValueObject,
-    ValueString,
-    ValueDouble,
-    ValueLong,
-    ValueList
-  };
-
-  template<eParseState>
-  struct ReturnType {};
-
-  template<> struct ReturnType<eParseState::Key> { using type = Key; };
-  template<> struct ReturnType<eParseState::ValueObject> { using type = Object; };
-  template<> struct ReturnType<eParseState::ValueString> { using type = std::string; };
-  template<> struct ReturnType<eParseState::ValueDouble> { using type = double; };
-  template<> struct ReturnType<eParseState::ValueLong> { using type = long; };
-  template<> struct ReturnType<eParseState::ValueList> { using type = List; };
-  
-  template<eParseState state>
-  ReturnType<state> &get_underlying_value(Value &value) {
-    return std::get<ReturnType<state>>(value.value);
-  };
-  
-  
-  Object parse_json(std::string json) {
-    Object root;
-    root.value["root"];
-    detail::normalize(json);
-    Object *cur_obj = &root;
-    Value intermediate_value;
-    
-    for (int i = 0; i < json.size(); i++) {
-      const char c = json[i];
-      switch (c) {
-      case '{': // end object
-      case '}': // start object
-      case '"': // toggle string mode
-      case '[': // start list
-      case ']': // end list
-      case ':': // switch to value collection
-      default: // if string -> collect chars : else  -> collect double
-	return root;
-      }
-    }
-    return root;
-  }
+  return Result;
 }
 
-int main() {
-  const std::string test_json = R"({
-				  "key1" : { "subkey" : [ 123, 23, 3], "name" : "my-name", "value" : 2.2312 },
-                                  "key2" :{"wants" : "gets"}
-				  })";
+    static buffer read_entire_file(const char *filename) {
+        buffer result = {};
+        FILE *file = fopen(filename, "rb");
+        if (file) {
+            struct stat s = {};
+            stat(filename, &s);
+            result = allocate_buffer(s.st_size);
+            if (result.data) {
+                if (fread(result.data, result.count, 1, file) != 1) {
+                    fprintf(stderr, "Error: unable to read `%s`.\n", filename);
+                    free_buffer(&result);
+                }
+            }
+            fclose(file);
+        } else {
+            fprintf(stderr, "Error: unable to open `%s`.\n", filename);
+        }
+        return result;
+    }
+
+    static double sum_haversine_distances(uint64_t pair_count, haversine_pair *pairs) {
+        double sum = 0;
+        for (uint64_t i = 0; i < pair_count; i++) {
+            haversine_pair pair = pairs[i];
+            constexpr double EARTH_RADIUS = 6372.8;
+            double dist = ReferenceHaversine(pair.x0,
+                                             pair.y0,
+                                             pair.x1,
+                                             pair.y1,
+                                             EARTH_RADIUS);
+            //            std::cout << pair.x0 << " "
+            //                      << pair.y0 << " "
+            //                      << pair.x1 << " "
+            //                      << pair.y1 << " "
+            //                      << dist << std::endl;
+            sum += (dist / pair_count);
+        }
+        return sum;
+    }
+
     
-  std::cout << json::detail::normalize(test_json) << std::endl;
+}
+int main(int argc, char **argv)
+{
+    int result = 1;
+    if((argc == 2) || (argc == 3))
+    {
+        buffer input_json = lsp::read_entire_file(argv[1]);
+        unsigned min_json_pair_encoding = 6*4;
+        uint64_t max_pair_count = input_json.count / min_json_pair_encoding;
+        if(max_pair_count)
+        {
+            buffer parsed_values = allocate_buffer(max_pair_count * sizeof(haversine_pair));
+            if(parsed_values.count)
+            {
+                haversine_pair *pairs = (haversine_pair *)parsed_values.data;
+                uint64_t pair_count = json::parse_haversine_pairs(input_json, max_pair_count, pairs);
+                double sum = lsp::sum_haversine_distances(pair_count, pairs);
+                
+                fprintf(stdout, "Input size: %llu\n", input_json.count);
+                fprintf(stdout, "Pair count: %llu\n", pair_count);
+                fprintf(stdout, "Haversine sum: %.16f\n", sum);
+                
+                if(argc == 3)
+                {
+                    buffer answers_double = lsp::read_entire_file(argv[2]);
+                    if(answers_double.count >= sizeof(double))
+                    {
+                        double *answer_values = (double *)answers_double.data;
+                        
+                        fprintf(stdout, "\nValidation:\n");
+                        
+                        uint64_t ref_answer_count = (answers_double.count - sizeof(double)) / sizeof(double);
+                        if(pair_count != ref_answer_count)
+                        {
+                            fprintf(stdout, "FAILED - pair count doesn't match %llu.\n", ref_answer_count);
+                        }
+                        
+                        double ref_sum = answer_values[ref_answer_count];
+                        fprintf(stdout, "Reference sum: %.16f\n", ref_sum);
+                        fprintf(stdout, "Difference: %.16f\n", sum - ref_sum);
+                        
+                        fprintf(stdout, "\n");
+                    }
+                }
+            }
+            
+            free_buffer(&parsed_values);
+        }
+        else
+        {
+            fprintf(stderr, "ERROR: Malformed input JSON\n");
+        }
+
+        free_buffer(&input_json);
+        
+        result = 0;
+    }
+    else
+    {
+        fprintf(stderr, "Usage: %s [haversine_input.json]\n", argv[0]);
+        fprintf(stderr, "       %s [haversine_input.json] [answers.double]\n", argv[0]);
+    }
+    
+    return result;
 }
